@@ -1,0 +1,5 @@
+{
+  "name": "Tweakwise Navigator Explorer",
+  "description": "Transform Tweakwise demo URLs into API views to explore facets and products with debug information.",
+  "requestFramePermissions": []
+}
