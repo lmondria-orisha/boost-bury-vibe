@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, TrendingUp, TrendingDown, Info, ExternalLink } from 'lucide-react';
+import { Search, Loader2, TrendingUp, TrendingDown, Info, ExternalLink, Sliders, Settings2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TweakwiseResponse, Product, Facet } from './types';
 
@@ -9,6 +9,12 @@ export default function App() {
   const [data, setData] = useState<TweakwiseResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [configOverride, setConfigOverride] = useState(JSON.stringify({
+    "boostbury": [
+      { "id": 2, "active": true, "weight": -10 },
+      { "id": 3, "active": true, "weight": 10 }
+    ]
+  }, null, 2));
 
   const transformUrl = (url: string) => {
     try {
@@ -30,16 +36,64 @@ export default function App() {
     }
   };
 
-  const fetchData = async () => {
+  const WEIGHT_LEVELS = [
+    { label: 'Gentle nudge', value: 10, description: 'A light touch. Subtle preference.' },
+    { label: 'Noticeable', value: 26, description: 'A clear signal. Reliably lifts/demotes.' },
+    { label: 'Strong', value: 51, description: 'A decisive move. Meaningful jump.' },
+    { label: 'Aggressive', value: 101, description: 'Major intervention. High-stakes.' }
+  ];
+
+  const updateConfigWeight = (id: number, weight: number) => {
+    try {
+      const currentConfig = JSON.parse(configOverride);
+      if (currentConfig.boostbury) {
+        currentConfig.boostbury = currentConfig.boostbury.map((c: any) => 
+          c.id === id ? { ...c, weight } : c
+        );
+        setConfigOverride(JSON.stringify(currentConfig, null, 2));
+        
+        // Also update local data to reflect in UI immediately
+        if (data) {
+          setData({
+            ...data,
+            config: currentConfig
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Invalid JSON in override textarea', e);
+    }
+  };
+
+  const fetchData = async (override?: string) => {
     setLoading(true);
     setError(null);
     try {
       const transformed = transformUrl(inputUrl);
       setApiUrl(transformed);
-      const response = await fetch(transformed);
+      
+      const proxyUrl = new URL('/api/proxy', window.location.origin);
+      proxyUrl.searchParams.set('url', transformed);
+
+      const headers: HeadersInit = {};
+      if (typeof override === 'string' && override.trim()) {
+        const charsToEncode = /[\u007f-\uffff]/g;
+        // Strip spaces and hidden characters, then encode non-ASCII characters
+        const safeHeader = override.replace(/\s/g, '').replace(charsToEncode, (c) => {
+          return '\\u' + ('000' + c.charCodeAt(0).toString(16)).slice(-4);
+        });
+        console.log('Sending safe header', safeHeader);
+        headers['TWN-Config-Override'] = safeHeader;
+      }
+
+      const response = await fetch(proxyUrl.toString(), { headers });
       if (!response.ok) throw new Error('Failed to fetch data from Tweakwise API');
       const json = await response.json();
       setData(json);
+      
+      if (json.config && !override) {
+        setConfigOverride(JSON.stringify(json.config, null, 2));
+      }
     } catch (err: any) {
       setError(err.message);
       setData(null);
@@ -50,7 +104,7 @@ export default function App() {
 
   useEffect(() => {
     if (inputUrl) {
-      fetchData();
+      fetchData(configOverride);
     }
   }, []);
 
@@ -76,7 +130,7 @@ export default function App() {
                 className="flex-1 bg-neutral-100 border-none rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-emerald-500 transition-all outline-none"
               />
               <button
-                onClick={fetchData}
+                onClick={() => fetchData()}
                 disabled={loading}
                 className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-neutral-300 text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2"
               >
@@ -102,42 +156,124 @@ export default function App() {
         )}
 
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Sidebar - Facets */}
-          <aside className="w-full lg:w-64 flex-shrink-0">
+          {/* Sidebar - Configuration */}
+          <aside className="w-full lg:w-80 flex-shrink-0">
             <div className="sticky top-24">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-400 mb-4">Facets</h2>
-              <div className="space-y-6">
+              <div className="flex items-center gap-2 mb-6">
+                <Settings2 className="w-4 h-4 text-neutral-400" />
+                <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-400">Configuration</h2>
+              </div>
+              
+              <div className="space-y-4">
                 {loading || !data ? (
-                  // Facet Skeletons
+                  // Config Skeletons
                   [...Array(3)].map((_, i) => (
-                    <div key={i} className="border-b border-neutral-200 pb-4 last:border-0 animate-pulse">
-                      <div className="h-4 bg-neutral-200 rounded w-1/2 mb-3" />
-                      <div className="space-y-2">
-                        <div className="h-3 bg-neutral-100 rounded w-3/4" />
-                        <div className="h-3 bg-neutral-100 rounded w-2/3" />
-                        <div className="h-3 bg-neutral-100 rounded w-1/2" />
-                      </div>
+                    <div key={i} className="animate-pulse space-y-2">
+                      <div className="h-3 bg-neutral-200 rounded w-2/3" />
+                      <div className="h-1.5 bg-neutral-100 rounded w-full" />
                     </div>
                   ))
                 ) : (
-                  data?.facets?.map((facet) => (
-                    <div key={facet.facetsettings.facetid} className="border-b border-neutral-200 pb-4 last:border-0">
-                      <h3 className="font-semibold text-sm mb-3">{facet.facetsettings.title}</h3>
-                      <ul className="space-y-2">
-                        {facet.attributes?.map((option) => (
-                          <li key={option.attributeid} className="flex items-center justify-between text-sm group cursor-pointer">
-                            <div className="flex items-center gap-2">
-                              <div className={`w-4 h-4 rounded border ${option.isselected ? 'bg-emerald-600 border-emerald-600' : 'border-neutral-300 group-hover:border-emerald-500'} transition-colors`} />
-                              <span className={option.isselected ? 'font-medium text-emerald-700' : 'text-neutral-600'}>
-                                {option.title}
-                              </span>
+                  <div className="space-y-3">
+                    {data?.config?.boostbury?.map((config) => {
+                      const isBury = config.weight < 0;
+                      const absWeight = Math.abs(config.weight);
+                      
+                      return (
+                        <div key={config.id} className={`space-y-3 p-3 rounded-xl border transition-all ${config.active ? 'bg-white border-neutral-200 shadow-sm' : 'bg-neutral-50 border-transparent opacity-60'}`}>
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-bold text-[11px] text-neutral-800 truncate pr-2">
+                              <span className="text-neutral-400 font-mono mr-1">#{config.id}</span>
+                              {config.name}
+                            </h3>
+                            <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${config.active ? 'bg-emerald-500' : 'bg-neutral-300'}`} />
+                          </div>
+                          
+                          <div className="space-y-3">
+                            {/* Rule Type */}
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() => updateConfigWeight(config.id, absWeight)}
+                                className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${!isBury ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' : 'border-neutral-200 hover:border-neutral-300 bg-white'}`}
+                              >
+                                <div className={`p-1 rounded ${!isBury ? 'bg-emerald-100 text-emerald-600' : 'bg-neutral-100 text-neutral-400'}`}>
+                                  <TrendingUp className="w-3 h-3" />
+                                </div>
+                                <span className={`text-[9px] font-bold ${!isBury ? 'text-emerald-700' : 'text-neutral-500'}`}>Boost</span>
+                              </button>
+                              <button
+                                onClick={() => updateConfigWeight(config.id, -absWeight)}
+                                className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all ${isBury ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-500' : 'border-neutral-200 hover:border-neutral-300 bg-white'}`}
+                              >
+                                <div className={`p-1 rounded ${isBury ? 'bg-orange-100 text-orange-600' : 'bg-neutral-100 text-neutral-400'}`}>
+                                  <TrendingDown className="w-3 h-3" />
+                                </div>
+                                <span className={`text-[9px] font-bold ${isBury ? 'text-orange-700' : 'text-neutral-500'}`}>Bury</span>
+                              </button>
                             </div>
-                            <span className="text-xs text-neutral-400 font-mono">({option.nrofresults})</span>
-                          </li>
-                        ))}
-                      </ul>
+
+                            {/* Weight Levels */}
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {WEIGHT_LEVELS.map((level) => {
+                                const isActive = absWeight === level.value;
+                                return (
+                                  <button
+                                    key={level.value}
+                                    onClick={() => updateConfigWeight(config.id, isBury ? -level.value : level.value)}
+                                    className={`text-left p-1.5 rounded-lg border transition-all ${isActive ? 'border-neutral-800 bg-neutral-900 text-white' : 'border-neutral-200 hover:border-neutral-300 bg-white text-neutral-600'}`}
+                                  >
+                                    <div className="font-bold text-[8px] leading-tight mb-0.5">{level.label}</div>
+                                    <div className={`text-[7px] leading-tight opacity-70 line-clamp-2 ${isActive ? 'text-neutral-300' : 'text-neutral-400'}`}>
+                                      {level.description}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-[8px] font-mono text-neutral-400 pt-1 border-t border-neutral-100">
+                              <span>Current Weight</span>
+                              <span className={`font-bold ${isBury ? 'text-orange-600' : 'text-emerald-600'}`}>{config.weight}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    {!data?.config?.boostbury?.length && (
+                      <div className="text-neutral-400 text-sm italic py-8 text-center border-2 border-dashed border-neutral-100 rounded-2xl">
+                        No boostbury configuration found
+                      </div>
+                    )}
+
+                    <div className="pt-8 border-t border-neutral-200 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">Config Override</h3>
+                        <button 
+                          onClick={() => setConfigOverride(JSON.stringify(data?.config, null, 2))}
+                          className="text-[10px] text-emerald-600 hover:underline font-medium"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                      
+                      <textarea
+                        value={configOverride}
+                        onChange={(e) => setConfigOverride(e.target.value)}
+                        placeholder="Paste config JSON here..."
+                        className="w-full h-48 bg-neutral-900 text-emerald-400 font-mono text-[10px] p-3 rounded-xl border-none focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
+                      />
+                      
+                      <button
+                        onClick={() => fetchData(configOverride)}
+                        disabled={loading || !configOverride}
+                        className="w-full bg-neutral-900 hover:bg-black text-white py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        <Sliders className="w-3 h-3" />
+                        Re-execute with Override
+                      </button>
                     </div>
-                  ))
+                  </div>
                 )}
               </div>
             </div>

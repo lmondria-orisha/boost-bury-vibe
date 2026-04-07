@@ -1,6 +1,16 @@
 export interface TweakwiseResponse {
   facets: Facet[];
   items: Product[];
+  config?: {
+    boostbury: BoostBuryConfig[];
+  };
+}
+
+export interface BoostBuryConfig {
+  id: number;
+  name: string;
+  active: boolean;
+  weight: number;
 }
 
 export interface Facet {
